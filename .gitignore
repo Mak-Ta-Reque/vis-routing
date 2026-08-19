@@ -1,0 +1,13 @@
+__pycache__
+figures
+logs
+data/
+.ipynb_checkpoints/
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.ckpt
+*.npy
+*.npz
+.claude/
