@@ -1,13 +1,22 @@
-# Vis-Head: Visual Routing Heads in Vision-Language Models
+# Vis-Head: Visual Information Routing (VIR) in Vision-Language Models
 
-An investigation into **Visual Routing Heads (VRH)** — attention heads that route a
-VLM's generation toward whatever region of an image is currently the subject of
-description, and can be causally redirected to make the model describe somewhere
-else instead. Starting from an existing head-discovery/steering codebase for the
-Qwen3-VL family, this project builds out a substantially larger experimental
-program: new datasets, a cross-model developmental study, controlled confound
-isolation, causal-metric validation, and a formal forced-choice causal-intervention
-evaluation.
+An investigation into **Visual Information Routing (VIR)** — attention heads that
+route a VLM's generation toward whatever region of an image is currently the
+subject of description, and can be causally redirected to make the model describe
+somewhere else instead. Starting from an existing head-discovery/steering codebase
+for the Qwen3-VL family, this project builds out a substantially larger
+experimental program: new datasets, a cross-model developmental study, controlled
+confound isolation, causal-metric validation, and a formal forced-choice
+causal-intervention evaluation.
+
+**New to this repo? Start with [`INSTRUCTIONS.md`](INSTRUCTIONS.md)** — a
+step-by-step, dumb-proof walkthrough of the current VIR pipeline (grid
+construction, all 4 head-scoring methods, layer-matched causal control, and how to
+run the training-stage and linguistic-formulation comparisons), covering
+`multistage_vis_head_causality.ipynb`, the project's main, currently-maintained
+experiment notebook across Qwen2.5-VL/Qwen3-VL, Gemma-4, and InternVL3.5 (all
+≤8B). This README covers the codebase more broadly, including the earlier
+single-family (Qwen3-VL) experiments described below.
 
 ## What's original here
 
@@ -55,8 +64,15 @@ pip install -r requirements.txt
 The steering evaluations use Claude as a judge, so you need to export your
 `ANTHROPIC_API_KEY` (ideally to your bashrc). Discovery and the trajectory plots need
 no API key. The library package is internally named `vis_head/` for historical
-reasons (see Acknowledgments); this doc refers to the heads it finds as Visual
-Routing Heads.
+reasons; this doc refers to the heads it finds as Visual Information Routing (VIR)
+heads.
+
+**InternVL3.5 needs a separate `internvl_env` conda environment** (its remote code
+requires an older `transformers` than everything else in this repo) — see
+[`INSTRUCTIONS.md`](INSTRUCTIONS.md) §2 for the exact setup and every environment
+variable this codebase reads (`VIR_IMAGENET_ROOT`, `VIR_COCO_ROOT`,
+`VIR_COMICS_ROOT`, `ANTHROPIC_API_KEY`, `HF_HOME`), including defaults and how to
+verify each is set correctly before running anything.
 
 ## Data
 To download the 500-strip comics dataset (500 six-panel strips, per-panel captions):
@@ -93,12 +109,28 @@ base/instruct/agentic switch, or the COCO/comics `DATASET_SOURCE` flag) from the
 repo root: pick a target region from a dropdown, type a switching schedule, or drag a
 box over any image and steer the description to it.
 
+## Cross-model, cross-training-stage, cross-phrasing VIR study
+
+`multistage_vis_head_causality.ipynb` is the project's current main experiment
+notebook: it runs the full VIR pipeline (patch-aligned grid construction, all 4
+head-scoring methods — raw mass, excess mass, mean-of-ratios and pooled-ratio
+target share — and causal MCQ evaluation against a layer-matched random-head
+control, not just a no-intervention baseline) across Qwen2.5-VL/Qwen3-VL,
+Gemma-4, and InternVL3.5, capped at ≤8B parameters, and is built to be extended
+across training stages (pretrained/CPT → instruct/SFT → MPO/RL) and across
+different linguistic formulations of the same visual question (LFVQ). See
+[`INSTRUCTIONS.md`](INSTRUCTIONS.md) for the full step-by-step guide, terminology
+glossary, and known pitfalls, and [`mulltistage_trained_models.md`](mulltistage_trained_models.md)
+for which HF checkpoint corresponds to which training stage, per family/size.
+
 ## Acknowledgments
 
 This codebase builds on an existing VIR-head discovery/steering implementation for
 Qwen3-VL, developed for prior published research on attention-based visual
 description in VLMs. That prior work established the base discovery method (raw
 attention VIR scoring on comic-panel queries) and the boost/suppress steering
-intervention; this project's contribution is everything described above built on top
-of it. If citing the underlying discovery/steering mechanism specifically, please
-credit the original publication.
+intervention; this project's contribution — everything described above, including
+the cross-model/cross-training-stage/cross-phrasing study in
+`multistage_vis_head_causality.ipynb` — is built on top of it. If citing the
+underlying discovery/steering mechanism specifically, please credit the original
+publication.
