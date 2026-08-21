@@ -15,9 +15,9 @@ referenced notebook/script directly to reproduce a given experiment.
 - `vis_head/*.py` — the reusable library code all of the above imports.
 
 **Prerequisites common to everything below:** a GPU, the repo's conda env
-(`gazeheads`), and — for anything touching COCO or ImageNet — the raw data at the
+(`virheads`), and — for anything touching COCO or ImageNet — the raw data at the
 paths configured in `vis_head/coco.py` / `vis_head/imagenet_grid.py`
-(`GAZE_COCO_ROOT`, `GAZE_IMAGENET_ROOT` env vars if you need to override them).
+(`VIR_COCO_ROOT`, `VIR_IMAGENET_ROOT` env vars if you need to override them).
 
 ## 1. Dataset builders
 
@@ -55,7 +55,7 @@ the dataset outside a notebook.
 |---|---|---|---|
 | 4.1 | `word_jaccard_similarity` -> `semantic_similarity` (NLI-based, DeBERTa-xlarge-MNLI) causal-effect metric | Lexical-overlap effect size underestimated true effect; switching to entailment-based similarity made the base > instruct/agentic causal finding *more* significant, not less | `vis_head/judge.py` (`semantic_similarity`); re-run via `compare_base_vs_instruct_vis_heads.ipynb` / `compare_comics_vs_coco_vis_heads.ipynb` |
 | 4.2 | Value-weighted attention (`attn x \|\|value\|\|`, Kobayashi et al. 2020) vs. raw attention, head-to-head causal test | Value-weighting relocates "top heads" to late layers (value norm grows with depth, not function) and picks heads with **3.6x smaller** causal effect than raw attention — raw attention wins decisively | `experiments/08_value_weighted_vs_raw_attention.py` |
-| 4.3 | Gradient-based attribution patching attempt | **Infeasible as implemented** — full-graph backward through the 8B VLM's vision tower + 36 LM layers OOM'd on a 24GB GPU even with gradient checkpointing; would need vision-tower/LM forward-pass splitting to fix properly. Not resolved; abandoned in favor of 4.4 | `vis_head/gaze.py::collect_attribution_scores` (present but never successfully run end-to-end) |
+| 4.3 | Gradient-based attribution patching attempt | **Infeasible as implemented** — full-graph backward through the 8B VLM's vision tower + 36 LM layers OOM'd on a 24GB GPU even with gradient checkpointing; would need vision-tower/LM forward-pass splitting to fix properly. Not resolved; abandoned in favor of 4.4 | `vis_head/vir.py::collect_attribution_scores` (present but never successfully run end-to-end) |
 | 4.4 | Single-head causal **sufficiency** (boost one head alone toward panel A vs. B, no location text) vs. raw attention, cross-validated against group ablation-**necessity** | Sufficiency-selected heads underperform raw-attention heads on the necessity test (3.6x smaller effect) — sufficiency and necessity are different, only partially correlated causal properties (H6); raw attention (necessity-aligned) was the right choice for this project's "what does the model naturally rely on" question all along | `experiments/09_single_head_causal_sufficiency.py` |
 
 ## 5. Prompt-robustness and confound-isolation probes (mostly on ImageNet-grid)

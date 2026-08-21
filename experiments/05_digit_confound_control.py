@@ -1,4 +1,4 @@
-"""Is the named-object / positional gaze-head split actually about DIGIT
+"""Is the named-object / positional vir-head split actually about DIGIT
 TOKENS (many tokenizers give numbers special handling), or genuinely about
 spatial-vs-semantic reference type?
 
@@ -26,7 +26,7 @@ from scipy import stats
 from tqdm.auto import tqdm
 
 from vis_head.common import DEFAULT_MODEL_ID, DEFAULT_SEED, dump_json
-from vis_head.gaze import aggregate_region_attention, collect_last_query_attentions, rank_heads_by_score
+from vis_head.vir import aggregate_region_attention, collect_last_query_attentions, rank_heads_by_score
 from vis_head.imagenet_grid import (
     DEFAULT_IMAGENET_ROOT, PROMPT_TEMPLATES, bare_row_col_prompt, list_val_class_dirs,
     load_class_names, position_words_prompt, sample_grid,

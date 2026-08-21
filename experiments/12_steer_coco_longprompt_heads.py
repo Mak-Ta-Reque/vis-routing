@@ -1,4 +1,4 @@
-"""Long-prompt COCO gaze-head discovery for Qwen2-VL-7B-Instruct (N=400,
+"""Long-prompt COCO vir-head discovery for Qwen2-VL-7B-Instruct (N=400,
 "Look carefully at this picture. Find the {category}. Answer briefly."),
 then the same steering demo (same 10 multi-object images, same seed, same
 top-30 head budget) used for the short-prompt-COCO-heads and comics-heads
@@ -16,7 +16,7 @@ from tqdm.auto import tqdm
 
 from vis_head.common import DEFAULT_SEED, dump_json, make_output_paths
 from vis_head.coco import DEFAULT_COCO_ROOT, DEFAULT_COCO_SPLIT, SelectionConfig, vis_head_score_from_patch_mask, load_coco_index, mask_to_patch_occupancy, segmentation_to_mask, select_target_objects
-from vis_head.gaze import collect_last_query_attentions, rank_heads_by_score
+from vis_head.vir import collect_last_query_attentions, rank_heads_by_score
 from vis_head.judge import semantic_similarity
 from vis_head.modeling import decode_generated_text, find_image_token_range, load_model_and_processor, model_dims, prepare_inputs, run_generation
 from vis_head.regions import bbox_to_token_positions, get_merged_grid_shape
@@ -51,7 +51,7 @@ print(f"Discovery samples: {len(coco_targets)}")
 
 score_sum = np.zeros((n_layers, n_heads), dtype=np.float64)
 valid = 0
-for target in tqdm(coco_targets, desc="Gaze discovery [Qwen2-VL-Instruct / COCO / long prompt]"):
+for target in tqdm(coco_targets, desc="Vir discovery [Qwen2-VL-Instruct / COCO / long prompt]"):
     image_path = Path(target.image_path)
     if not image_path.exists():
         continue
@@ -71,18 +71,18 @@ for target in tqdm(coco_targets, desc="Gaze discovery [Qwen2-VL-Instruct / COCO 
         print(f"Skipping {target.image_path}: {exc}")
 
 vis_head_scores = (score_sum / max(valid, 1)).astype(np.float32)
-gaze_ranked = rank_heads_by_score(vis_head_scores)
+vir_ranked = rank_heads_by_score(vis_head_scores)
 print(f"valid samples: {valid}/{len(coco_targets)}")
-print(f"Top-10 heads: {[(r['layer'], r['head']) for r in gaze_ranked[:10]]}")
+print(f"Top-10 heads: {[(r['layer'], r['head']) for r in vir_ranked[:10]]}")
 print(f"mean raw score: {vis_head_scores.mean():.5f}")
 
 outputs = make_output_paths("vis_head_discovery_qwen2vl_instruct_coco_longprompt")
 np.save(outputs.logs_dir / "vis_head_scores.npy", vis_head_scores)
-dump_json(outputs.logs_dir / "vis_head_ranking.json", gaze_ranked)
+dump_json(outputs.logs_dir / "vis_head_ranking.json", vir_ranked)
 
-vis_head = [(r["layer"], r["head"]) for r in gaze_ranked[:TOP_K_HEADS]]
-gaze_by_layer = group_heads_by_layer(vis_head)
-print(f"Using top-{TOP_K_HEADS} heads across {len(gaze_by_layer)} layers for steering.")
+vis_head = [(r["layer"], r["head"]) for r in vir_ranked[:TOP_K_HEADS]]
+vir_by_layer = group_heads_by_layer(vis_head)
+print(f"Using top-{TOP_K_HEADS} heads across {len(vir_by_layer)} layers for steering.")
 
 
 # ---------------------------- same 10 demo images as before ----------------------------
@@ -163,7 +163,7 @@ for sample in tqdm(demo_samples, desc="Steering demo [COCO long-prompt heads]"):
 
     x, y, w, h = sample["alternate"]["ann"]["bbox"]
     alt_bbox_xyxy = (x, y, x + w, y + h)
-    steered_text = caption_with_steering(image, CAPTION_PROMPT, alt_bbox_xyxy, gaze_by_layer, n_heads)
+    steered_text = caption_with_steering(image, CAPTION_PROMPT, alt_bbox_xyxy, vir_by_layer, n_heads)
 
     alt_cat = sample["alternate"]["category"]
     ref_caption = f"a photo of a {alt_cat}."

@@ -6,8 +6,8 @@ original comics panel-pointing prompt:
   padded   - the same, wrapped in extra unnecessary sentences before and
               after (irrelevant content, doesn't change the question).
 
-Checks both gaze score (attention identity) and causal-ablation effect
-(does padding weaken how much the answer depends on the top comics gaze
+Checks both vir score (attention identity) and causal-ablation effect
+(does padding weaken how much the answer depends on the top comics vir
 heads, the way it did for the ImageNet-grid "Look at the picture." filler?).
 """
 import sys
@@ -23,7 +23,7 @@ from tqdm.auto import tqdm
 
 from vis_head.common import DEFAULT_COMICS_ROOT, DEFAULT_MODEL_ID, DEFAULT_N_PANELS, DEFAULT_SEED, dump_json
 from vis_head.data import build_strip, list_comic_dirs
-from vis_head.gaze import aggregate_region_attention, collect_last_query_attentions, ordinal, rank_heads_by_score
+from vis_head.vir import aggregate_region_attention, collect_last_query_attentions, ordinal, rank_heads_by_score
 from vis_head.judge import bootstrap_ci, semantic_similarity
 from vis_head.modeling import decode_generated_text, find_image_token_range, load_model_and_processor, model_dims, prepare_inputs, run_generation
 from vis_head.regions import assign_panels_to_tokens, region_positions_from_ids
@@ -69,7 +69,7 @@ print(f"  [padded  ] {padded_prompt(3, N_PANELS)!r}")
 prompt_fns = {"original": original_prompt, "padded": padded_prompt}
 
 
-# ---------------------------- Part 1: gaze score ----------------------------
+# ---------------------------- Part 1: vir score ----------------------------
 def discover_for_prompt_fn(prompt_fn, label: str) -> np.ndarray:
     rng = np.random.RandomState(SEED)
     raw_sum = np.zeros((n_layers, n_heads), dtype=np.float64)
@@ -95,7 +95,7 @@ def discover_for_prompt_fn(prompt_fn, label: str) -> np.ndarray:
 
 scores = {name: discover_for_prompt_fn(fn, name) for name, fn in prompt_fns.items()}
 ranked_o, ranked_p = rank_heads_by_score(scores["original"]), rank_heads_by_score(scores["padded"])
-print("\n=== Gaze-score comparison ===")
+print("\n=== Vir-score comparison ===")
 for K in (10, 50, 100):
     top_o = set((r["layer"], r["head"]) for r in ranked_o[:K])
     top_p = set((r["layer"], r["head"]) for r in ranked_p[:K])

@@ -1,4 +1,4 @@
-"""Long-prompt ImageNet-grid gaze-head discovery for Qwen2-VL-7B-Instruct
+"""Long-prompt ImageNet-grid vir-head discovery for Qwen2-VL-7B-Instruct
 (N=400, "Look carefully at this picture. Find the {name}. Answer briefly."),
 then the same steering demo (same 10 multi-object COCO images, same seed,
 same top-30 head budget) used for the comics-heads and COCO-heads runs, for
@@ -17,7 +17,7 @@ from tqdm.auto import tqdm
 
 from vis_head.common import DEFAULT_SEED, dump_json, make_output_paths
 from vis_head.coco import DEFAULT_COCO_ROOT, DEFAULT_COCO_SPLIT, load_coco_index
-from vis_head.gaze import aggregate_region_attention, collect_last_query_attentions, rank_heads_by_score
+from vis_head.vir import aggregate_region_attention, collect_last_query_attentions, rank_heads_by_score
 from vis_head.imagenet_grid import DEFAULT_IMAGENET_ROOT, list_val_class_dirs, load_class_names, sample_grid
 from vis_head.judge import semantic_similarity
 from vis_head.modeling import decode_generated_text, find_image_token_range, load_model_and_processor, model_dims, prepare_inputs, run_generation
@@ -52,7 +52,7 @@ rng = np.random.RandomState(SEED)
 
 raw_sum = np.zeros((n_layers, n_heads), dtype=np.float64)
 valid = 0
-for _ in tqdm(range(N_DISCOVERY_SAMPLES), desc="Gaze discovery [Qwen2-VL-Instruct / ImageNet / long prompt]"):
+for _ in tqdm(range(N_DISCOVERY_SAMPLES), desc="Vir discovery [Qwen2-VL-Instruct / ImageNet / long prompt]"):
     grid = sample_grid(rows=ROWS, cols=COLS, cell_size=CELL_SIZE, rng=rng,
                         class_dirs=imagenet_class_dirs, class_names=imagenet_class_names)
     target_cell = int(rng.randint(N_CELLS))
@@ -70,18 +70,18 @@ for _ in tqdm(range(N_DISCOVERY_SAMPLES), desc="Gaze discovery [Qwen2-VL-Instruc
         print(f"Skipping grid: {exc}")
 
 vis_head_scores = (raw_sum / max(valid, 1)).astype(np.float32)
-gaze_ranked = rank_heads_by_score(vis_head_scores)
+vir_ranked = rank_heads_by_score(vis_head_scores)
 print(f"valid samples: {valid}/{N_DISCOVERY_SAMPLES}")
-print(f"Top-10 heads: {[(r['layer'], r['head']) for r in gaze_ranked[:10]]}")
+print(f"Top-10 heads: {[(r['layer'], r['head']) for r in vir_ranked[:10]]}")
 print(f"mean raw score: {vis_head_scores.mean():.5f}")
 
 outputs = make_output_paths("vis_head_discovery_qwen2vl_instruct_imagenet_longprompt")
 np.save(outputs.logs_dir / "vis_head_scores.npy", vis_head_scores)
-dump_json(outputs.logs_dir / "vis_head_ranking.json", gaze_ranked)
+dump_json(outputs.logs_dir / "vis_head_ranking.json", vir_ranked)
 
-vis_head = [(r["layer"], r["head"]) for r in gaze_ranked[:TOP_K_HEADS]]
-gaze_by_layer = group_heads_by_layer(vis_head)
-print(f"Using top-{TOP_K_HEADS} heads across {len(gaze_by_layer)} layers for steering.")
+vis_head = [(r["layer"], r["head"]) for r in vir_ranked[:TOP_K_HEADS]]
+vir_by_layer = group_heads_by_layer(vis_head)
+print(f"Using top-{TOP_K_HEADS} heads across {len(vir_by_layer)} layers for steering.")
 
 
 # ---------------------------- same 10 COCO demo images as the other two runs ----------------------------
@@ -165,7 +165,7 @@ for sample in tqdm(demo_samples, desc="Steering demo [ImageNet long-prompt heads
 
     x, y, w, h = sample["alternate"]["ann"]["bbox"]
     alt_bbox_xyxy = (x, y, x + w, y + h)
-    steered_text = caption_with_steering(image, CAPTION_PROMPT, alt_bbox_xyxy, gaze_by_layer, n_heads)
+    steered_text = caption_with_steering(image, CAPTION_PROMPT, alt_bbox_xyxy, vir_by_layer, n_heads)
 
     alt_cat = sample["alternate"]["category"]
     ref_caption = f"a photo of a {alt_cat}."

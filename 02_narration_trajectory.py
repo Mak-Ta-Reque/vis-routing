@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Track gaze-head attention trajectories during free panel-by-panel narration.
+"""Track vir-head attention trajectories during free panel-by-panel narration.
 
 The model narrates the strip with no steering while we record decode-time
 attention for (a) the top-K vis heads and (b) K random non-vis-head control
@@ -33,7 +33,7 @@ from vis_head.common import (
     write_text,
 )
 from vis_head.data import build_strip, list_comic_dirs
-from vis_head.gaze import load_head_ranking, sample_non_vis_heads
+from vis_head.vir import load_head_ranking, sample_non_vis_heads
 from vis_head.modeling import (
     decode_generated_text,
     decode_generated_tokens,
@@ -57,7 +57,7 @@ from vis_head.steering import (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Track gaze-head trajectories during narration.")
+    parser = argparse.ArgumentParser(description="Track vir-head trajectories during narration.")
     parser.add_argument("--comics-root", type=str, default=str(DEFAULT_COMICS_ROOT))
     parser.add_argument("--vis-head-ranking", type=str, default="",
                         help="Path to vis_head_ranking.json (default: logs/vis_head_discovery/).")
@@ -266,8 +266,8 @@ def main() -> None:
 
     vis_head_scores = np.load(ranking_path.parent / "vis_head_scores.npy")
     vis_head = load_head_ranking(ranking_path, top_k=args.top_k_vis_head)
-    gaze_by_layer = group_heads_by_layer(vis_head)
-    # Control: random heads with gaze score below the median.
+    vir_by_layer = group_heads_by_layer(vis_head)
+    # Control: random heads with vir score below the median.
     median_score = float(np.median(vis_head_scores))
     control_heads = sample_non_vis_heads(
         n_layers=n_layers,
@@ -291,11 +291,11 @@ def main() -> None:
             spatial_merge=spatial_merge,
         )
 
-        gaze_text, gaze_tokens, _, gaze_traj_raw = tracked_generation(
+        vir_text, vir_tokens, _, vir_traj_raw = tracked_generation(
             model=model,
             processor=processor,
             inputs=inputs,
-            heads_by_layer=gaze_by_layer,
+            heads_by_layer=vir_by_layer,
             img_start=img_start,
             img_end=img_end,
             region_ids=region_ids,
@@ -322,13 +322,13 @@ def main() -> None:
         comic_fig_dir.mkdir(parents=True, exist_ok=True)
 
         transitions = find_panel_transitions(
-            text=gaze_text,
-            tokens=gaze_tokens,
+            text=vir_text,
+            tokens=vir_tokens,
             n_panels=DEFAULT_N_PANELS,
         )
-        np.save(comic_log_dir / "gaze_traj_raw.npy", gaze_traj_raw)
+        np.save(comic_log_dir / "vir_traj_raw.npy", vir_traj_raw)
         np.save(comic_log_dir / "control_traj_raw.npy", control_traj_raw)
-        write_text(comic_log_dir / "gaze_text.txt", gaze_text)
+        write_text(comic_log_dir / "vir_text.txt", vir_text)
         write_text(comic_log_dir / "control_text.txt", control_text)
 
         dump_json(
@@ -337,22 +337,22 @@ def main() -> None:
                 "comic_name": strip.name,
                 "vis_head_count": len(vis_head),
                 "control_head_count": len(control_heads),
-                "gaze_text": gaze_text,
+                "vir_text": vir_text,
                 "control_text": control_text,
                 "panel_widths": strip.panel_widths,
-                "gaze_panel_transitions": transitions,
+                "vir_panel_transitions": transitions,
                 "attention_mode": args.attention_mode,
             },
         )
 
         shared_vmax = max(
-            float(gaze_traj_raw.max()) if gaze_traj_raw.size > 0 else 0.0,
+            float(vir_traj_raw.max()) if vir_traj_raw.size > 0 else 0.0,
             float(control_traj_raw.max()) if control_traj_raw.size > 0 else 0.0,
             1e-6,
         )
         save_figure_pdf(
             build_trajectory_figure(
-                trajectory_raw=gaze_traj_raw,
+                trajectory_raw=vir_traj_raw,
                 transitions=transitions,
                 attention_mode=args.attention_mode,
                 title=f"Vis Heads (n={len(vis_head)})",

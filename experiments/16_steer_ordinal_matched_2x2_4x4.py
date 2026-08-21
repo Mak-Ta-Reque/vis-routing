@@ -1,4 +1,4 @@
-"""ImageNet-grid gaze-head discovery using the comics-mirrored ordinal prompt
+"""ImageNet-grid vir-head discovery using the comics-mirrored ordinal prompt
 (no object naming, same verbose framing, same reference type as comics'
 panel_query_prompt) at 2x2 and 4x4 grid sizes, then the same 500-image COCO
 steering evaluation used for the comics/coco_lp/imagenet_lp comparison, so
@@ -18,7 +18,7 @@ from tqdm.auto import tqdm
 
 from vis_head.common import DEFAULT_SEED, dump_json, make_output_paths
 from vis_head.coco import DEFAULT_COCO_ROOT, DEFAULT_COCO_SPLIT, load_coco_index
-from vis_head.gaze import aggregate_region_attention, collect_last_query_attentions, rank_heads_by_score
+from vis_head.vir import aggregate_region_attention, collect_last_query_attentions, rank_heads_by_score
 from vis_head.imagenet_grid import DEFAULT_IMAGENET_ROOT, comics_style_ordinal_prompt, list_val_class_dirs, load_class_names, sample_grid
 from vis_head.judge import bootstrap_ci, semantic_similarity
 from vis_head.modeling import decode_generated_text, find_image_token_range, load_model_and_processor, model_dims, prepare_inputs, run_generation
@@ -58,7 +58,7 @@ for tag, (rows, cols) in GRID_SIZES.items():
     rng = np.random.RandomState(SEED)
     raw_sum = np.zeros((n_layers, n_heads), dtype=np.float64)
     valid = 0
-    for _ in tqdm(range(N_DISCOVERY_SAMPLES), desc=f"Gaze discovery [{tag}]"):
+    for _ in tqdm(range(N_DISCOVERY_SAMPLES), desc=f"Vir discovery [{tag}]"):
         grid = sample_grid(rows=rows, cols=cols, cell_size=CELL_SIZE, rng=rng,
                             class_dirs=imagenet_class_dirs, class_names=imagenet_class_names)
         target_cell = int(rng.randint(n_cells))
@@ -76,14 +76,14 @@ for tag, (rows, cols) in GRID_SIZES.items():
             print(f"Skipping grid: {exc}")
 
     vis_head_scores = (raw_sum / max(valid, 1)).astype(np.float32)
-    gaze_ranked = rank_heads_by_score(vis_head_scores)
+    vir_ranked = rank_heads_by_score(vis_head_scores)
     print(f"valid: {valid}/{N_DISCOVERY_SAMPLES}  mean raw score: {vis_head_scores.mean():.5f}")
-    print(f"Top-10 heads: {[(r['layer'], r['head']) for r in gaze_ranked[:10]]}")
+    print(f"Top-10 heads: {[(r['layer'], r['head']) for r in vir_ranked[:10]]}")
 
     outputs = make_output_paths(f"vis_head_discovery_qwen2vl_instruct_imagenet_{tag}")
     np.save(outputs.logs_dir / "vis_head_scores.npy", vis_head_scores)
-    dump_json(outputs.logs_dir / "vis_head_ranking.json", gaze_ranked)
-    head_sets[tag] = group_heads_by_layer([(r["layer"], r["head"]) for r in gaze_ranked[:TOP_K_HEADS]])
+    dump_json(outputs.logs_dir / "vis_head_ranking.json", vir_ranked)
+    head_sets[tag] = group_heads_by_layer([(r["layer"], r["head"]) for r in vir_ranked[:TOP_K_HEADS]])
 
 
 # ---------------------------- 500-image COCO steering eval, same images as before ----------------------------

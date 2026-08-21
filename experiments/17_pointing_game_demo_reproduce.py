@@ -14,7 +14,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from vis_head.common import DEFAULT_MODEL_ID, DEFAULT_SEED, make_output_paths
-from vis_head.gaze import load_head_ranking
+from vis_head.vir import load_head_ranking
 from vis_head.imagenet_grid import DEFAULT_IMAGENET_ROOT, draw_cell_labels, list_val_class_dirs, load_class_names, sample_grid
 from vis_head.modeling import decode_generated_text, find_image_token_range, load_model_and_processor, model_dims, prepare_inputs, run_generation
 from vis_head.plots import draw_attention_overlay
@@ -36,7 +36,7 @@ model, processor = load_model_and_processor(model_id=MODEL_ID, device=DEVICE)
 n_layers, n_query_heads, spatial_merge = model_dims(model)
 
 vis_head = load_head_ranking(VIS_HEAD_RANKING_PATH, top_k=TOP_K_HEADS)
-gaze_by_layer = group_heads_by_layer(vis_head)
+vir_by_layer = group_heads_by_layer(vis_head)
 
 imagenet_class_dirs = list_val_class_dirs(DEFAULT_IMAGENET_ROOT)
 imagenet_class_names = load_class_names(DEFAULT_IMAGENET_ROOT)
@@ -104,7 +104,7 @@ def run_mcq(sample, steer):
             layer_idx: make_static_attention_mask_hook(
                 head_indices=heads, suppress_positions=suppress_positions, boost_positions=boost_positions,
                 n_query_heads=n_query_heads, device=DEVICE, decode_only=False, pad_with_suppress=pad)
-            for layer_idx, heads in gaze_by_layer.items()
+            for layer_idx, heads in vir_by_layer.items()
         }
         handles = register_mask_hooks(model, hook_by_layer)
 

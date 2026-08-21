@@ -1,8 +1,8 @@
-"""Random-head ablation control: is base's higher causal effect specific to gaze
+"""Random-head ablation control: is base's higher causal effect specific to vir
 heads, or is base just generally more fragile to any attention perturbation?
 
 Reuses cached vis_head_scores.npy (no need to redo the 200-comic discovery pass).
-Same comic/target-panel sample sequence is used for both the gaze-head and
+Same comic/target-panel sample sequence is used for both the vir-head and
 random-head conditions (both draw from the same seeded RNG inside
 causal_ablation_effects), so within each model the two conditions are paired —
 enabling a Wilcoxon signed-rank test, not just an unpaired comparison.
@@ -22,7 +22,7 @@ from tqdm.auto import tqdm
 
 from vis_head.common import DEFAULT_COMICS_ROOT, DEFAULT_N_PANELS, DEFAULT_SEED, dump_json
 from vis_head.data import build_strip, list_comic_dirs
-from vis_head.gaze import panel_query_prompt, rank_heads_by_score
+from vis_head.vir import panel_query_prompt, rank_heads_by_score
 from vis_head.judge import semantic_similarity
 from vis_head.modeling import decode_generated_text, find_image_token_range, load_model_and_processor, model_dims, run_generation
 from vis_head.regions import assign_panels_to_tokens, region_positions_from_ids
@@ -57,7 +57,7 @@ combined_ranked = rank_heads_by_score(combined_score)
 excluded = set((r["layer"], r["head"]) for r in combined_ranked[:EXCLUDE_TOP_N])
 all_heads = [(l, h) for l in range(n_layers) for h in range(n_heads)]
 candidate_random = [hh for hh in all_heads if hh not in excluded]
-print(f"Random-control pool: {len(candidate_random)} heads (excluding top {EXCLUDE_TOP_N} by combined gaze score)")
+print(f"Random-control pool: {len(candidate_random)} heads (excluding top {EXCLUDE_TOP_N} by combined vir score)")
 
 rand_rng = np.random.RandomState(RANDOM_CONTROL_SEED)
 random_heads_by_budget = {}
@@ -127,19 +127,19 @@ def causal_ablation_effects(model, processor, comic_dirs, n_panels, n_samples, h
     return results
 
 
-gaze_results = {}
+vir_results = {}
 random_results = {}
 for tag, model_id in MODELS.items():
     print(f"\n=== Loading {model_id} ({tag}) ===")
     model, processor = load_model_and_processor(model_id=model_id, device=DEVICE)
     n_query_heads = model_dims(model)[1]
-    gaze_results[tag] = {}
+    vir_results[tag] = {}
     random_results[tag] = {}
     for budget in HEAD_BUDGETS:
         vis_head = group_heads_by_layer([(r["layer"], r["head"]) for r in combined_ranked[:budget]])
         random_heads = group_heads_by_layer(random_heads_by_budget[budget])
         print(f"--- budget {budget} ---")
-        gaze_results[tag][budget] = causal_ablation_effects(
+        vir_results[tag][budget] = causal_ablation_effects(
             model, processor, comic_dirs, N_PANELS, N_CAUSAL_SAMPLES, vis_head, n_query_heads, DEVICE)
         random_results[tag][budget] = causal_ablation_effects(
             model, processor, comic_dirs, N_PANELS, N_CAUSAL_SAMPLES, random_heads, n_query_heads, DEVICE)
@@ -148,20 +148,20 @@ for tag, model_id in MODELS.items():
     torch.cuda.empty_cache()
 
 print("\n\n=== RESULTS ===")
-print(f"{'heads':>6s}  {'model':>9s}  {'gaze effect':>12s}  {'random effect':>14s}  {'gap':>8s}  {'paired Wilcoxon p':>18s}")
+print(f"{'heads':>6s}  {'model':>9s}  {'vir effect':>12s}  {'random effect':>14s}  {'gap':>8s}  {'paired Wilcoxon p':>18s}")
 summary_rows = []
 for budget in HEAD_BUDGETS:
     for tag in MODELS:
-        gaze_effects = [r["effect"] for r in gaze_results[tag][budget]]
+        vir_effects = [r["effect"] for r in vir_results[tag][budget]]
         random_effects = [r["effect"] for r in random_results[tag][budget]]
-        n = min(len(gaze_effects), len(random_effects))
-        gaze_effects, random_effects = gaze_effects[:n], random_effects[:n]
-        gap = float(np.mean(gaze_effects) - np.mean(random_effects))
-        w = stats.wilcoxon(gaze_effects, random_effects)
-        print(f"{budget:6d}  {tag:>9s}  {np.mean(gaze_effects):12.3f}  {np.mean(random_effects):14.3f}  {gap:8.3f}  {w.pvalue:18.3e}")
+        n = min(len(vir_effects), len(random_effects))
+        vir_effects, random_effects = vir_effects[:n], random_effects[:n]
+        gap = float(np.mean(vir_effects) - np.mean(random_effects))
+        w = stats.wilcoxon(vir_effects, random_effects)
+        print(f"{budget:6d}  {tag:>9s}  {np.mean(vir_effects):12.3f}  {np.mean(random_effects):14.3f}  {gap:8.3f}  {w.pvalue:18.3e}")
         summary_rows.append({
             "budget": budget, "tag": tag,
-            "gaze_effect_mean": float(np.mean(gaze_effects)),
+            "vir_effect_mean": float(np.mean(vir_effects)),
             "random_effect_mean": float(np.mean(random_effects)),
             "gap": gap, "wilcoxon_p": float(w.pvalue),
         })
@@ -172,7 +172,7 @@ dump_json(REPO_ROOT / "logs" / "causal_control_check" / "summary.json", summary_
 print("\n\n=== EXAMPLE TRANSCRIPTS (budget=5) ===")
 for tag in MODELS:
     print(f"\n--- {tag} ---")
-    for cond_name, results in (("gaze", gaze_results[tag][5]), ("random", random_results[tag][5])):
+    for cond_name, results in (("vir", vir_results[tag][5]), ("random", random_results[tag][5])):
         r = results[0]
         print(f"  [{cond_name}] baseline: {r['baseline_text'][:150]!r}")
         print(f"  [{cond_name}] ablated : {r['ablated_text'][:150]!r}")

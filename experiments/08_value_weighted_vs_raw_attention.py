@@ -1,4 +1,4 @@
-"""Value-weighted vs. raw-attention gaze scoring, head to head.
+"""Value-weighted vs. raw-attention vir scoring, head to head.
 
 Same comics, same panel queries, both metrics computed in the same pass set:
   raw    - attention weight on the queried panel's image tokens (current method)
@@ -23,7 +23,7 @@ from tqdm.auto import tqdm
 
 from vis_head.common import DEFAULT_COMICS_ROOT, DEFAULT_MODEL_ID, DEFAULT_N_PANELS, DEFAULT_SEED, dump_json
 from vis_head.data import build_strip, list_comic_dirs
-from vis_head.gaze import (
+from vis_head.vir import (
     aggregate_region_attention, collect_last_query_attentions,
     collect_last_query_attentions_value_weighted, panel_query_prompt, rank_heads_by_score,
 )

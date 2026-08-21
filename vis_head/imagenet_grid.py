@@ -1,4 +1,4 @@
-"""ImageNet-grid gaze dataset: a clean, controlled alternative to comic strips
+"""ImageNet-grid vir dataset: a clean, controlled alternative to comic strips
 and COCO for finding and stress-testing vis heads.
 
 Each sample tiles `rows x cols` single-object ImageNet validation images into
@@ -13,7 +13,7 @@ cell on every sample (unlike comics, whose panel content is fixed per strip).
 This independence is what makes the grid useful for generalization testing:
 holding the prompt template fixed and varying which object lands in the
 target cell tests whether vis heads are *object-general*; holding the
-object fixed and varying the instruction's wording (verb) tests whether gaze
+object fixed and varying the instruction's wording (verb) tests whether vir
 heads are *prompt/action-general* rather than tied to a specific phrasing.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ from PIL import Image, ImageDraw
 from vis_head.common import REPO_ROOT
 
 DEFAULT_IMAGENET_ROOT = Path(
-    os.environ.get("GAZE_IMAGENET_ROOT", "/mnt/abka03/raw_data_download/imagenet")
+    os.environ.get("VIR_IMAGENET_ROOT", "/mnt/abka03/raw_data_download/imagenet")
 )
 DEFAULT_IMAGENET_SPLIT = "val"
 DEFAULT_ROWS = 2
@@ -39,7 +39,7 @@ DEFAULT_GAP = 6
 
 # Verb/phrasing templates for the prompt-generalization test (Part 5): same
 # object reference, different instruction wording. "object_prompt" (the
-# default, `"Find the {name}."`) matches the phrasing used for the COCO gaze
+# default, `"Find the {name}."`) matches the phrasing used for the COCO vir
 # dataset (`vis_head/coco.py`) for cross-dataset comparability.
 PROMPT_TEMPLATES: dict[str, str] = {
     "find": "Find the {name}.",
@@ -66,7 +66,7 @@ _NUMBER_WORDS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven
 
 
 def comics_style_ordinal_prompt(cell_index_1based: int, n_cells: int) -> str:
-    """Word-for-word mirror of `vis_head.gaze.panel_query_prompt`'s wording
+    """Word-for-word mirror of `vis_head.vir.panel_query_prompt`'s wording
     and structure ("Look carefully at this {count}-panel comic strip. What is
     happening in the {ordinal} panel from the left? Answer briefly."), for a
     controlled comparison: same verbose framing, same "Answer briefly."
@@ -76,7 +76,7 @@ def comics_style_ordinal_prompt(cell_index_1based: int, n_cells: int) -> str:
     comics' steering advantage survives once the reference-type confound
     (ordinal vs. named-object) is removed.
     """
-    from vis_head.gaze import ordinal as _ordinal
+    from vis_head.vir import ordinal as _ordinal
 
     count_word = _NUMBER_WORDS.get(n_cells, str(n_cells))
     return (
@@ -258,6 +258,121 @@ def sample_grid(
         gap=gap,
         cell_bboxes=_cell_bboxes(rows, cols, cell_size, gap),
     )
+
+
+def sample_circular_grid_series(
+    imagenet_root: Path = DEFAULT_IMAGENET_ROOT,
+    rows: int = DEFAULT_ROWS,
+    cols: int = DEFAULT_COLS,
+    cell_size: int = DEFAULT_CELL_SIZE,
+    gap: int = DEFAULT_GAP,
+    rng: Optional[np.random.RandomState] = None,
+    class_dirs: Optional[Sequence[Path]] = None,
+    class_names: Optional[dict[str, str]] = None,
+    target_class_dir: Optional[Path] = None,
+) -> list[ImageNetGrid]:
+    """The "imagenet_circular_grid" dataset: one object image held fixed,
+    "orbited" through every one of the `rows*cols` grid positions in turn,
+    with the SAME set of distractor images in every variant. This isolates
+    grid *position* as the only thing that changes across a series of
+    `rows*cols` samples -- unlike `sample_grid`, where object identity AND
+    position both vary independently sample-to-sample. Useful for testing
+    whether a vis head's score is driven by genuine position-conditioned
+    routing (should look the same regardless of which position the target
+    sits in) or by some object/content confound (would look different across
+    positions for the SAME identity/other-cell content).
+
+    Returns a list of `rows*cols` `ImageNetGrid`s -- one per target position,
+    row-major -- for a single target object. Build a full `imagenet_circular_grid`
+    dataset (p classes x rows*cols samples) by calling this once per target
+    class and concatenating the results.
+    """
+    rng = rng or np.random.RandomState()
+    class_dirs = list(class_dirs) if class_dirs is not None else list_val_class_dirs(imagenet_root)
+    class_names = class_names if class_names is not None else load_class_names(imagenet_root)
+    n_cells = rows * cols
+    if len(class_dirs) < n_cells:
+        raise ValueError(f"Need >= {n_cells} classes, found {len(class_dirs)} under {imagenet_root}.")
+
+    if target_class_dir is None:
+        target_class_dir = class_dirs[int(rng.randint(len(class_dirs)))]
+    other_pool = [d for d in class_dirs if d.name != target_class_dir.name]
+    distractor_dirs = [other_pool[i] for i in rng.choice(len(other_pool), size=n_cells - 1, replace=False)]
+
+    def _pick_image(class_dir: Path) -> Image.Image:
+        images = sorted(p for p in class_dir.iterdir() if p.suffix.upper() in (".JPEG", ".JPG", ".PNG"))
+        image_path = images[int(rng.randint(len(images)))]
+        return _open_rgb_square(image_path, cell_size)
+
+    target_image = _pick_image(target_class_dir)
+    target_name = class_names.get(target_class_dir.name, target_class_dir.name)
+    distractor_images = [_pick_image(d) for d in distractor_dirs]
+    distractor_names = [class_names.get(d.name, d.name) for d in distractor_dirs]
+    distractor_wnids = [d.name for d in distractor_dirs]
+
+    series = []
+    for target_pos in range(n_cells):
+        cell_images, cell_wnids, cell_names = [], [], []
+        d_iter = iter(zip(distractor_images, distractor_wnids, distractor_names))
+        for pos in range(n_cells):
+            if pos == target_pos:
+                cell_images.append(target_image)
+                cell_wnids.append(target_class_dir.name)
+                cell_names.append(target_name)
+            else:
+                img, wnid, name = next(d_iter)
+                cell_images.append(img)
+                cell_wnids.append(wnid)
+                cell_names.append(name)
+        grid_image = _assemble_grid(cell_images, rows, cols, cell_size, gap)
+        series.append(ImageNetGrid(
+            name=f"{target_class_dir.name}_pos{target_pos}",
+            grid=grid_image,
+            cell_images=cell_images,
+            cell_wnids=cell_wnids,
+            cell_names=cell_names,
+            rows=rows,
+            cols=cols,
+            cell_size=cell_size,
+            gap=gap,
+            cell_bboxes=_cell_bboxes(rows, cols, cell_size, gap),
+        ))
+    return series
+
+
+def build_imagenet_circular_grid_dataset(
+    n_classes: int,
+    imagenet_root: Path = DEFAULT_IMAGENET_ROOT,
+    rows: int = DEFAULT_ROWS,
+    cols: int = DEFAULT_COLS,
+    cell_size: int = DEFAULT_CELL_SIZE,
+    gap: int = DEFAULT_GAP,
+    rng: Optional[np.random.RandomState] = None,
+    class_dirs: Optional[Sequence[Path]] = None,
+    class_names: Optional[dict[str, str]] = None,
+) -> list[tuple[ImageNetGrid, int]]:
+    """Build the full imagenet_circular_grid dataset: `n_classes` target
+    objects, each orbited through all `rows*cols` positions, for
+    `n_classes * rows * cols` total grids. Returns a flat list of
+    `(grid, target_cell)` pairs (row-major position index), p*n*m samples
+    as requested -- p=n_classes target objects x n*m=rows*cols positions."""
+    rng = rng or np.random.RandomState()
+    class_dirs = list(class_dirs) if class_dirs is not None else list_val_class_dirs(imagenet_root)
+    class_names = class_names if class_names is not None else load_class_names(imagenet_root)
+    n_cells = rows * cols
+    if n_classes > len(class_dirs):
+        raise ValueError(f"Requested {n_classes} classes, only {len(class_dirs)} available.")
+    chosen_targets = [class_dirs[i] for i in rng.choice(len(class_dirs), size=n_classes, replace=False)]
+
+    dataset = []
+    for target_class_dir in chosen_targets:
+        series = sample_circular_grid_series(
+            imagenet_root=imagenet_root, rows=rows, cols=cols, cell_size=cell_size, gap=gap,
+            rng=rng, class_dirs=class_dirs, class_names=class_names, target_class_dir=target_class_dir,
+        )
+        for target_cell, grid in enumerate(series):
+            dataset.append((grid, target_cell))
+    return dataset
 
 
 def draw_cell_labels(grid: ImageNetGrid) -> Image.Image:

@@ -16,7 +16,7 @@ from scipy import stats
 from tqdm.auto import tqdm
 
 from vis_head.common import DEFAULT_MODEL_ID, DEFAULT_SEED, dump_json
-from vis_head.gaze import aggregate_region_attention, collect_last_query_attentions, rank_heads_by_score
+from vis_head.vir import aggregate_region_attention, collect_last_query_attentions, rank_heads_by_score
 from vis_head.imagenet_grid import DEFAULT_IMAGENET_ROOT, PROMPT_TEMPLATES, list_val_class_dirs, load_class_names, sample_grid
 from vis_head.judge import bootstrap_ci, semantic_similarity
 from vis_head.modeling import decode_generated_text, find_image_token_range, load_model_and_processor, model_dims, prepare_inputs, run_generation
@@ -65,7 +65,7 @@ for name, fn in prompt_fns.items():
     print(f"  [{name:>15s}] {fn(g0.cell_names[t0])!r}")
 
 
-# ---------------------------- Part 1: gaze score ----------------------------
+# ---------------------------- Part 1: vir score ----------------------------
 def discover_for_prompt_fn(prompt_fn, label: str) -> np.ndarray:
     raw_sum = np.zeros((n_layers, n_heads), dtype=np.float64)
     valid = 0
@@ -88,7 +88,7 @@ def discover_for_prompt_fn(prompt_fn, label: str) -> np.ndarray:
 
 scores = {name: discover_for_prompt_fn(fn, name) for name, fn in prompt_fns.items()}
 ranked_o, ranked_lc = rank_heads_by_score(scores["original"]), rank_heads_by_score(scores["look_carefully"])
-print("\n=== Gaze-score comparison ===")
+print("\n=== Vir-score comparison ===")
 for K in (10, 50, 100):
     top_o = set((r["layer"], r["head"]) for r in ranked_o[:K])
     top_lc = set((r["layer"], r["head"]) for r in ranked_lc[:K])

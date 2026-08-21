@@ -1,4 +1,4 @@
-"""Gaze-head discovery on COCO (400 samples) and ImageNet-grid (400 samples)
+"""Vir-head discovery on COCO (400 samples) and ImageNet-grid (400 samples)
 using a comics-style long prompt instead of the minimal "Find the {name}."
 used everywhere else in this project:
 
@@ -24,7 +24,7 @@ from tqdm.auto import tqdm
 
 from vis_head.common import DEFAULT_MODEL_ID, DEFAULT_SEED, dump_json, make_output_paths
 from vis_head.coco import DEFAULT_COCO_ROOT, DEFAULT_COCO_SPLIT, SelectionConfig, vis_head_score_from_patch_mask, load_coco_index, mask_to_patch_occupancy, segmentation_to_mask, select_target_objects, target_weight_fraction
-from vis_head.gaze import aggregate_region_attention, collect_last_query_attentions, panel_token_fractions, rank_heads_by_score
+from vis_head.vir import aggregate_region_attention, collect_last_query_attentions, panel_token_fractions, rank_heads_by_score
 from vis_head.imagenet_grid import DEFAULT_IMAGENET_ROOT, list_val_class_dirs, load_class_names, sample_grid
 from vis_head.modeling import find_image_token_range, load_model_and_processor, model_dims, prepare_inputs
 from vis_head.regions import assign_grid_cells_to_tokens, get_merged_grid_shape

@@ -87,7 +87,7 @@
 
   Discovery measures, for a given prompt and target cell, how much attention mass
   each `(layer, head)` places on the target cell's tokens at the final query
-  position, averaged over many samples (`vis_head/gaze.py::aggregate_region_attention`,
+  position, averaged over many samples (`vis_head/vir.py::aggregate_region_attention`,
   `collect_last_query_attentions`). The **discovery prompt directly names the
   target object** — there is no MCQ, no letter to parse, no generation-format
   consideration. Its only job is to give the model a reason to route attention to a
@@ -108,7 +108,7 @@
   | `identify` | `"Identify the {name}."` |
   | `bare_name` | `"{name}"` (no instruction/verb at all — the referring expression alone) |
 
-  `find` matches the phrasing used for the COCO gaze dataset
+  `find` matches the phrasing used for the COCO VIR dataset
   (`vis_head/coco.py`), for cross-dataset comparability. `bare_name` isolates
   whether a task framing is even necessary or whether the reference alone is
   sufficient to recruit the same heads.
@@ -281,7 +281,7 @@
   top-ranked heads had **no significant causal effect** (steered accuracy
   0.240 vs. 0.280 baseline, p=0.45).
 
-  `vis_head/gaze.py::collect_cot_trace_region_attention` instead measures
+  `vis_head/vir.py::collect_cot_trace_region_attention` instead measures
   attention **throughout the full generated reasoning trace**: it registers a
   forward hook on every layer (`vis_head/steering.py::register_attention_trackers`)
   that records each decode step's post-softmax attention row, runs a full

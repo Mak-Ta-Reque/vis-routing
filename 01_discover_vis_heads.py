@@ -42,7 +42,7 @@ from vis_head.common import (
     seed_everything,
 )
 from vis_head.data import build_random_raw_strip, build_strip, list_comic_dirs
-from vis_head.gaze import (
+from vis_head.vir import (
     aggregate_region_attention,
     collect_last_query_attentions,
     panel_query_prompt,
@@ -95,9 +95,9 @@ def plot_score_histogram(
     if top10_threshold is not None:
         ax.axvline(top10_threshold, color="tab:red", linestyle=":", linewidth=1.5,
                    label=f"Top 10 ({top10_threshold:.3f})")
-    ax.set_xlabel("Gaze score (raw image-token attention, diagonal mean)")
+    ax.set_xlabel("Vir score (raw image-token attention, diagonal mean)")
     ax.set_ylabel("Number of heads")
-    ax.set_title("Gaze score distribution")
+    ax.set_title("Vir score distribution")
     ax.legend()
     return fig
 
@@ -107,7 +107,7 @@ def plot_score_map(scores: np.ndarray) -> plt.Figure:
     im = ax.imshow(scores, aspect="auto", cmap="viridis")
     ax.set_xlabel("Head")
     ax.set_ylabel("Layer")
-    ax.set_title("Gaze score by layer and head")
+    ax.set_title("Vir score by layer and head")
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Score")
     return fig
 
@@ -226,11 +226,11 @@ def main() -> None:
     model, processor = load_model_and_processor(model_id=args.model_id, device=args.device)
     n_layers, n_heads, spatial_merge = model_dims(model)
 
-    gaze_sum = np.zeros((args.n_panels, n_layers, n_heads, args.n_panels), dtype=np.float64)
+    vir_sum = np.zeros((args.n_panels, n_layers, n_heads, args.n_panels), dtype=np.float64)
     sampled_names: list[str] = []
     valid_samples = 0
 
-    for strip in tqdm(strip_source(), total=args.n_samples, desc="Gaze discovery"):
+    for strip in tqdm(strip_source(), total=args.n_samples, desc="Vir discovery"):
         region_ids = None
         ok = True
         per_prompt = []
@@ -263,14 +263,14 @@ def main() -> None:
             continue
 
         for prompt_idx in range(args.n_panels):
-            gaze_sum[prompt_idx] += per_prompt[prompt_idx]
+            vir_sum[prompt_idx] += per_prompt[prompt_idx]
         sampled_names.append(strip.name)
         valid_samples += 1
 
     if valid_samples == 0:
         raise RuntimeError("No valid samples were processed. Check the comics root.")
 
-    mean_panel_attention = gaze_sum / float(valid_samples)
+    mean_panel_attention = vir_sum / float(valid_samples)
     vis_head_scores = np.zeros((n_layers, n_heads), dtype=np.float32)
     for layer_idx in range(n_layers):
         for head_idx in range(n_heads):

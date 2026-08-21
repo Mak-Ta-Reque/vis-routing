@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Causal dynamic narration steering: switch the gaze target mid-generation.
+"""Causal dynamic narration steering: switch the vir target mid-generation.
 
 For each strip:
   1. Sample a derangement of the panels (no panel in its default position) as
      the steering schedule.
-  2. Generate one ~300-token narration while the gaze-head target switches to
+  2. Generate one ~300-token narration while the vir-head target switches to
      the next scheduled panel every --switch-every decode steps.
   3. Chunk the narration into segments aligned with the schedule and ask a
      forced 1-of-6 Claude judge which panel each segment describes.
@@ -41,7 +41,7 @@ from vis_head.common import (
     write_text,
 )
 from vis_head.data import build_strip, list_comic_dirs
-from vis_head.gaze import load_head_ranking, sample_non_vis_heads
+from vis_head.vir import load_head_ranking, sample_non_vis_heads
 from vis_head.judge import DEFAULT_JUDGE_MODEL, bootstrap_ci, judge_match_target_panel, require_api_key
 from vis_head.modeling import (
     decode_generated_text,
@@ -133,7 +133,7 @@ def run_one(
     repetition_penalty: float | None = None,
     no_repeat_ngram_size: int | None = None,
 ) -> tuple[str, list[str]]:
-    """One narration with a dynamic gaze schedule. Returns (text, tokens)."""
+    """One narration with a dynamic vir schedule. Returns (text, tokens)."""
     step_counter = DecodeStepCounter()
     layers = sorted(heads_by_layer.keys()) or [0]
 

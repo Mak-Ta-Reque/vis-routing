@@ -73,10 +73,10 @@ def draw_attention_overlay(
             x_pos = width * (col_start / max(n_cols, 1))
             ax.axvline(x=x_pos, color="white", linestyle="--", linewidth=1.5, alpha=0.8)
 
-    ax._gaze_overlay = overlay  # type: ignore[attr-defined]
+    ax._vir_overlay = overlay  # type: ignore[attr-defined]
 
 
 def add_overlay_colorbar(fig: plt.Figure, ax) -> None:
-    overlay = getattr(ax, "_gaze_overlay", None)
+    overlay = getattr(ax, "_vir_overlay", None)
     if overlay is not None:
         fig.colorbar(overlay, ax=ax, fraction=0.046, pad=0.04, label="Attention")

@@ -9,7 +9,7 @@ For every (strip, target_panel) pair:
   3. Ask a Claude judge which panel the steered answer best matches
      (forced 1-of-6; junk counts as a miss; chance = 1/6).
 
-Conditions: gaze top-K, K random non-vis-head controls (bottom percentile of the
+Conditions: vir top-K, K random non-vis-head controls (bottom percentile of the
 vis-head-score distribution), and optionally all heads (which destroys generation).
 
 Outputs (under logs/<output-name>/):
@@ -41,7 +41,7 @@ from vis_head.common import (
     write_text,
 )
 from vis_head.data import build_strip, list_comic_dirs
-from vis_head.gaze import load_head_ranking, sample_non_vis_heads
+from vis_head.vir import load_head_ranking, sample_non_vis_heads
 from vis_head.judge import DEFAULT_JUDGE_MODEL, bootstrap_ci, judge_match_target_panel, require_api_key
 from vis_head.modeling import (
     decode_generated_text,
@@ -93,7 +93,7 @@ def parse_args() -> argparse.Namespace:
                    help="Skip the all-heads control (~2x faster).")
     p.set_defaults(include_all_heads=True)
     p.add_argument("--nonvishead-percentile", type=float, default=5.0,
-                   help="Non-Vis-Head controls are sampled from heads whose gaze score "
+                   help="Non-Vis-Head controls are sampled from heads whose vir score "
                         "is in the bottom X%% of the distribution. With a looser "
                         "cutoff the strong bias leaks image signal through "
                         "moderately-attending heads and inflates the control.")

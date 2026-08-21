@@ -1,5 +1,5 @@
 """Same steering demo (steer 10 multi-object COCO images toward the
-'alternate' object's box), but using the COMICS-discovered gaze-head ranking
+'alternate' object's box), but using the COMICS-discovered vir-head ranking
 for Qwen2-VL-7B-Instruct (logs/vis_head_discovery_qwen2vl_instruct/, from the
 base/instruct/agentic comparison) instead of the COCO-discovered one from
 qwen2vl_coco_steer_demo.ipynb -- same 10 samples (same seed), same top-K,

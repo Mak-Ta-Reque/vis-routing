@@ -1,0 +1,403 @@
+\section{ImageNet-Grid Construction and Its Role in Identifying VIR Heads}
+\label{sec:imagenet-grid}
+
+\subsection{Construction}
+
+Every discovery and causal-steering sample in this project is built from
+\texttt{vis\_head/imagenet\_grid.py} (\texttt{sample\_grid} and, for the
+position-controlled variant, \texttt{sample\_circular\_grid\_series} /
+\texttt{build\_imagenet\_circular\_grid\_dataset}). A sample tiles
+$R = \text{rows}\times\text{cols}$ single-object ImageNet validation images
+into one composite grid image. Concretely, for a grid with $\rho \in
+\{0,\dots,R-1\}$ cells:
+
+\begin{enumerate}
+  \item \textbf{Class sampling.} $R$ distinct class directories
+  $c_0,\dots,c_{R-1}$ are drawn without replacement from the full ImageNet
+  validation class list, \texttt{rng.choice(len(class\_dirs), size=n\_cells,
+  replace=False)}. Distinctness is enforced at the class level: no two cells
+  in the same sample can hold the same category.
+  \item \textbf{Image sampling.} For each chosen class $c_\rho$, one image is
+  drawn uniformly at random from that class's validation images.
+  \item \textbf{Square crop and resize.} Each image is center-cropped to a
+  square (side $=\min(w,h)$, so no distortion of object shape) and resized to
+  a fixed \texttt{cell\_size} (default $256\times256$), via
+  \texttt{\_open\_rgb\_square}.
+  \item \textbf{Tiling.} The $R$ cell images are pasted into a row-major
+  $\text{rows}\times\text{cols}$ canvas with a fixed pixel gap between cells
+  (\texttt{\_assemble\_grid}), and each cell's pixel bounding box is recorded
+  exactly (\texttt{\_cell\_bboxes}) — this bounding box is ground truth, not
+  inferred.
+\end{enumerate}
+
+The result is an \texttt{ImageNetGrid} record carrying, alongside the
+composite image itself, the per-cell source images, WordNet IDs, human-readable
+class names, and exact pixel bounding boxes — i.e.\ a sample where the
+region-to-content mapping is known with certainty by construction, not by any
+downstream annotation or detection step.
+
+For the position-controlled \emph{circular} variant used in
+Section~\ref{sec:raw-head-selection}'s robustness check, one target class
+$c^{*}$ and one fixed set of $R-1$ distractor classes are chosen once, and
+then $R$ grids are emitted — one per value of $\rho^{*} \in \{0,\dots,R-1\}$
+— with $c^{*}$'s image placed at cell $\rho^{*}$ and the \emph{same}
+distractor images filling every other cell in every variant. Content is thus
+held fixed while only the target's grid position varies across the $R$-sample
+series.
+
+\subsection{Motivation}
+
+A visual information routing (VIR) head is, by hypothesis, an attention head
+whose query-to-image attention pattern is causally responsible for pulling a
+specific region's visual content into the residual stream at the position
+where the model commits to an answer. Locating such heads reliably —
+and only such heads — requires an image/prompt distribution with three
+properties that natural photographs (e.g.\ COCO) do not offer directly:
+
+\begin{description}
+  \item[Known, disjoint ground-truth regions.] The raw-score pipeline
+  (Section~\ref{sec:raw-head-selection}) needs a token-to-region map
+  $r(t)$ to aggregate attention per region at all. In a natural photo, "where
+  is the object" is itself an open detection problem — using a grid instead
+  makes region membership a closed-form geometric fact
+  (\texttt{assign\_grid\_cells\_to\_tokens} from the recorded \texttt{cell\_bboxes}
+  / vision-patch grid, no detector, no annotation noise). Any imprecision in
+  which head "found" the object would otherwise be entangled with imprecision
+  in what counts as the object's region.
+  \item[Referential unambiguity.] Prompts like \texttt{"Identify the
+  \{name\}."} are only unambiguous if the named category occurs in exactly
+  one cell. Enforcing distinct classes per cell (no-replacement sampling)
+  removes the alternative explanation "the head attends to \emph{a} correct
+  cell, just not \emph{the} one referenced" — a confound that a natural
+  multi-instance photo cannot rule out.
+  \item[Independent object/position pairing across samples.] Because
+  \texttt{sample\_grid} redraws which class occupies which cell on every
+  sample, discovery scores are averaged over many different
+  (object, position) pairings. A head that scores well here cannot be a head
+  that merely likes one particular object's visual features regardless of
+  position, nor a head that merely likes one particular cell regardless of
+  content — surviving this average is evidence of genuine
+  \emph{content-general, position-conditioned routing}, which is the specific
+  behavior "VIR head" is meant to name. The circular-grid variant sharpens
+  this further by holding content fixed and varying \emph{only} position
+  within a single object's series, directly testing whether a candidate
+  head's score is stable under a pure position perturbation (see
+  \texttt{score\_variance\_stats} / \texttt{snr\_score}) rather than being an
+  artifact of one lucky object/position combination.
+\end{description}
+
+Without this construction, a high raw discovery score $\bar{s}_{l,h}$ would
+be uninterpretable: it could reflect true region-conditioned routing, or
+equally well reflect an object-identity bias, a fixed positional bias, or an
+annotation artifact from an imperfect region definition. The grid's controlled
+class-distinctness, exact region ground truth, and (in the circular variant)
+explicit position/content decoupling are what let a high $\bar{s}_{l,h}$ — and
+the resulting causal steering effect once $\mathcal{C}_{\text{raw}}$ is
+intervened on — be attributed specifically to visual information routing
+rather than to a simpler, non-routing correlate.
+
+\section{Raw-Attention Candidate Head Selection}
+\label{sec:raw-head-selection}
+
+This section formalizes the raw-score discovery pipeline exactly as
+implemented in \texttt{vis\_head/gaze.py}
+(\texttt{collect\_last\_query\_attentions},
+\texttt{aggregate\_region\_attention}, \texttt{rank\_heads\_by\_score}) and the
+per-checkpoint discovery loops that call them.
+
+\subsection{Attention extraction at the query position}
+
+For a single discovery sample, the multimodal input is a grid image
+partitioned into $R = \text{rows}\times\text{cols}$ regions (grid cells) and a
+text prompt referencing one target region by object name, e.g.\
+\texttt{"Identify the \{name\}."}. One prefill forward pass is run with
+\texttt{attn\_implementation="eager"} so per-head attention weights are
+materialized. Let $L$ be the number of transformer layers, $H$ the number of
+attention heads per layer, and $T$ the prompt length (sequence length at
+prefill, before any generation). For layer $l \in \{0,\dots,L-1\}$ and head
+$h \in \{0,\dots,H-1\}$, let
+\[
+  A^{(l,h)} \in \mathbb{R}^{T \times T}
+\]
+be that head's post-softmax attention matrix from the eager attention
+implementation, i.e.\ $\sum_{t=1}^{T} A^{(l,h)}_{q,t} = 1$ for every query
+position $q$. Only the attention row at the \emph{last} prompt-token position
+$q^{*} = T$ is retained (the position immediately preceding generation,
+where the model's committed answer is read off):
+\[
+  a^{(l,h)}_{t} \;=\; A^{(l,h)}_{q^{*},\, t}, \qquad t = 1,\dots,T .
+\]
+Stacking over all layers and heads gives the raw query-attention tensor
+\[
+  \mathbf{a} \in \mathbb{R}^{L \times H \times T},
+  \qquad
+  \mathbf{a}_{l,h,t} = a^{(l,h)}_{t}.
+\]
+This is exactly \texttt{collect\_last\_query\_attentions}: one prefill pass,
+one attention row (\texttt{attention[0, :, -1, :]}) taken per layer, stacked
+into an $(L, H, T)$ array.
+
+\subsection{Region aggregation (no renormalization)}
+
+Let $[t_{\text{img}}^{\text{start}}, t_{\text{img}}^{\text{end}})$ be the
+contiguous span of image-token positions in the sequence (architecture-specific,
+resolved by \texttt{find\_image\_token\_range}), and let
+$r : \{t_{\text{img}}^{\text{start}}, \dots, t_{\text{img}}^{\text{end}}-1\}
+\to \{0,\dots,R-1\}$
+map each image token to the grid cell it belongs to (\texttt{region\_ids},
+produced by \texttt{assign\_grid\_cells\_to\_tokens}). Define the one-hot
+region-membership matrix $\mathbf{M} \in \{0,1\}^{T_{\text{img}} \times R}$,
+$\mathbf{M}_{t,\rho} = \mathbb{1}[r(t) = \rho]$, where
+$T_{\text{img}} = t_{\text{img}}^{\text{end}} - t_{\text{img}}^{\text{start}}$.
+The per-region raw score tensor is the attention mass summed over each
+region's image tokens:
+\[
+  \mathbf{s} \in \mathbb{R}^{L \times H \times R},
+  \qquad
+  \mathbf{s}_{l,h,\rho}
+    \;=\; \sum_{t = t_{\text{img}}^{\text{start}}}^{t_{\text{img}}^{\text{end}}-1}
+          \mathbf{a}_{l,h,t}\, \mathbf{M}_{t - t_{\text{img}}^{\text{start}},\,\rho} .
+\]
+Implementation-wise this is the single einsum
+\texttt{np.einsum("lht,tr->lhr", image\_attention, region\_onehot)}. Critically,
+\emph{no renormalization} is applied across regions: rows of $\mathbf{s}$ do
+not sum to $1$. This is a deliberate design choice (documented directly in the
+docstring): a head that never attends to image tokens at all, or that spreads
+attention diffusely over the whole image, must score near zero rather than
+being inflated by a per-row softmax/renormalization step that would make any
+head "look diagonal" after the fact. A head only earns a high raw score if it
+\emph{both} (a) allocates attention mass to image tokens at all, and (b)
+concentrates that mass on the specific queried region.
+
+\subsection{Accumulation over discovery samples}
+
+For a discovery run of $N$ i.i.d.\ grid samples, sample $n$ has a
+ground-truth target region $\rho^{*}_n$ (the grid cell holding the object
+named in that sample's prompt). Only the score column at the \emph{true}
+target region is kept per sample:
+\[
+  \sigma^{(n)}_{l,h} \;=\; \mathbf{s}^{(n)}_{l,h,\rho^{*}_n}.
+\]
+The raw discovery score for head $(l,h)$ is the sample mean over all
+successfully processed samples ($\mathcal{N} \subseteq \{1,\dots,N\}$, valid
+samples after discarding any that raised an exception during forward/region
+assignment):
+\[
+  \boxed{\;
+  \bar{s}_{l,h} \;=\; \frac{1}{|\mathcal{N}|}\sum_{n \in \mathcal{N}} \sigma^{(n)}_{l,h}
+  \;}
+\]
+i.e.\ \texttt{vis\_head\_scores = raw\_sum / valid} where
+\texttt{raw\_sum += region\_attn[:, :, target\_cell]} is accumulated
+incrementally inside the discovery loop. $\bar{\mathbf{s}} \in \mathbb{R}^{L
+\times H}$ is the final raw score matrix passed to selection.
+
+\subsection{Top-$K$ candidate selection}
+
+Candidate heads are chosen by a pure descending sort of $\bar{\mathbf{s}}$,
+with \emph{no normalization of any kind} applied before ranking
+(\texttt{rank\_heads\_by\_score}):
+\[
+  \text{rank}(l,h) \;=\; \bigl|\{(l',h') : \bar{s}_{l',h'} > \bar{s}_{l,h}\}\bigr| + 1,
+\]
+\[
+  \mathcal{C}_{\text{raw}}
+    \;=\; \operatorname*{arg\,top\text{-}K}_{(l,h) \,\in\, \{0,\dots,L-1\}\times\{0,\dots,H-1\}} \bar{s}_{l,h}
+    \;=\; \{(l,h) : \text{rank}(l,h) \le K\}.
+\]
+$\mathcal{C}_{\text{raw}}$ (size $K$, $K{=}15$ throughout this project) is
+the raw-attention candidate head set. It is exactly this set (or a
+normalized-score variant of it, e.g.\ per-layer max/z-score-normalized
+$\bar{\mathbf{s}}$ ranked the same way) that is grouped by layer
+(\texttt{group\_heads\_by\_layer}) and handed to the causal steering
+intervention (\texttt{make\_static\_attention\_mask\_hook} /
+\texttt{register\_mask\_hooks}), which forcibly boosts attention to the
+target region and suppresses attention elsewhere, restricted to exactly the
+heads in $\mathcal{C}_{\text{raw}}$, to test whether the \emph{observationally}
+selected heads are also \emph{causally} responsible for the model's behavior.
+
+\subsection{Summary}
+
+\[
+\underbrace{A^{(l,h)}}_{\text{eager attn.\ matrix}}
+\;\xrightarrow{\text{last query row}}\;
+\underbrace{a^{(l,h)}_t}_{\mathbf{a}\in\mathbb{R}^{L\times H\times T}}
+\;\xrightarrow{\text{region sum, unnormalized}}\;
+\underbrace{\mathbf{s}_{l,h,\rho}}_{\text{per-sample, per-region}}
+\;\xrightarrow{\text{select }\rho=\rho^{*},\ \text{mean over }N\text{ samples}}\;
+\underbrace{\bar{s}_{l,h}}_{\text{raw discovery score}}
+\;\xrightarrow{\text{descending sort, top-}K}\;
+\mathcal{C}_{\text{raw}}.
+\]
+No step in this pipeline divides by a per-layer or per-head normalizer;
+normalization variants (per-layer max, per-layer z-score, SNR across samples)
+are computed only as \emph{alternative} rankings from the same
+$\bar{\mathbf{s}}$ (or per-sample $\sigma^{(n)}_{l,h}$) tensor, for direct
+comparison against $\mathcal{C}_{\text{raw}}$.
+
+\section{Causal Evaluation: Intervention, MCQ Generation, and Probing}
+\label{sec:causal-eval}
+
+A candidate head set $\mathcal{C}$ (e.g.\ $\mathcal{C}_{\text{raw}}$ from
+Section~\ref{sec:raw-head-selection}, or any normalized-score variant) is a
+purely \emph{observational} object until it is shown to be
+\emph{causally} load-bearing: forcibly redirecting exactly those heads'
+attention must change the model's behavior in the predicted direction. This
+section formalizes the two independent measurement instruments used
+throughout the project to test that -- one behavioral (grid MCQ generation
+with ground-truth-scored predictions), one representational (a linear probe
+on hidden states) -- both applied to the same held-out sample set under the
+same intervention, so their outcomes can be directly cross-checked against
+one another.
+
+\subsection{Causal intervention: static attention-mask biasing}
+
+Given target region $\rho^{*}$ and its image-token positions
+$T_{\rho^{*}}$, and the remaining image-token positions
+$T_{\text{other}} = \{t_{\text{img}}^{\text{start}},\dots,t_{\text{img}}^{\text{end}}-1\} \setminus T_{\rho^{*}}$,
+the \texttt{"boost\_suppress"} intervention mode
+(\texttt{intervention\_positions}) designates
+\[
+  \text{boost positions} = T_{\rho^{*}}, \qquad
+  \text{suppress positions} = T_{\text{other}},
+\]
+leaving all non-image (text/prompt) positions untouched. For every candidate
+head $(l,h) \in \mathcal{C}$, a static additive bias is injected into that
+head's pre-softmax attention logits at \emph{every} decoding step
+(\texttt{make\_static\_attention\_mask\_hook}, attached via a
+\texttt{register\_forward\_pre\_hook} on \texttt{self\_attn}, i.e.\ before
+the architecture's own attention-mask combination):
+\[
+  \widetilde{\text{mask}}^{(l,h)}_{1,t}
+  \;=\;
+  \text{mask}_{1,t}
+  \;+\;
+  \begin{cases}
+    +\beta, & t \in T_{\rho^{*}} \text{ and } h \in \mathcal{C}_l \\
+    -\beta, & t \in T_{\text{other}} \text{ and } h \in \mathcal{C}_l \\
+    0, & \text{otherwise},
+  \end{cases}
+\]
+where $\mathcal{C}_l = \{h : (l,h) \in \mathcal{C}\}$ is the set of
+intervened heads in layer $l$, and $\beta = \texttt{DEFAULT\_SWAP\_BIAS} =
+10{,}000$ -- large enough that, after softmax, attention mass on suppressed
+positions is driven to numerical zero and mass on boosted positions
+dominates, regardless of the head's original (pre-intervention) attention
+pattern. Heads not in $\mathcal{C}$, and all layers not containing an
+intervened head, are left completely unmodified. Only heads in
+$\mathcal{C}$ at layer $l$ receive the bias; every other head at that same
+layer keeps its original attention. This mask is added identically at every
+generation step (prefill and every decode step alike, \texttt{decode\_only=
+False} in this project's usage), so the boosted/suppressed routing is
+enforced for the entire response, not just the first token.
+
+\subsection{Instrument 1: MCQ generation with ground-truth-scored prediction}
+
+For a $k$-way multiple-choice sample with option letters
+$\mathcal{L} = \{A,\dots\}$ ($|\mathcal{L}|=k$, $k{=}4$ throughout) and
+correct letter $\ell^{*} \in \mathcal{L}$, the model is run under
+\texttt{model.generate(..., do\_sample=False, output\_scores=True,
+return\_dict\_in\_generate=True)} (greedy decoding) with the intervention
+hooks of the previous subsection registered for the duration of generation.
+Let $g_1,\dots,g_M$ be the generated token ids (excluding the prompt) and
+$\text{ids}(\ell)$ the (possibly multi-token, whitespace-variant) token-id
+set naming letter $\ell$ (\texttt{get\_letter\_token\_ids}). The
+\emph{answer step} is the position of the \emph{last} generated token that
+names any option letter,
+\[
+  m^{*} \;=\; \max\bigl\{\, m \in \{1,\dots,M\} \;:\; g_m \in \textstyle\bigcup_{\ell \in \mathcal{L}} \text{ids}(\ell) \,\bigr\},
+\]
+taking the last rather than the first such occurrence so that both
+instant-answer models (letter is $g_1$) and chain-of-thought models (the
+letter may recur inside intermediate reasoning tokens before the final
+commitment) are scored at the model's actual final decision point. The
+predicted letter is read off directly from the generated token,
+$\hat\ell = \ell$ such that $g_{m^{*}} \in \text{ids}(\ell)$, and a genuine
+probability vector is recovered from the real logits at that exact decode
+step (not from a softmax over the whole vocabulary, and not requiring a
+second forward pass):
+\[
+  p_\ell \;=\; \operatorname{softmax}_{\ell \in \mathcal{L}}
+  \Bigl(\max_{v \,\in\, \text{ids}(\ell)} z^{(m^{*})}_v\Bigr),
+  \qquad
+  z^{(m^{*})} = \texttt{out.scores}[m^{*}][0],
+\]
+i.e.\ the max logit over that letter's token-id variants at the answer
+step, softmax-normalized over the $k$ options. Aggregating $\hat\ell$ and
+$p$ over $N$ held-out samples with ground truth $\ell^{*}_n$ gives standard
+classification metrics -- accuracy $\frac{1}{N}\sum_n
+\mathbb{1}[\hat\ell_n = \ell^{*}_n]$, macro-F1, and macro one-vs-rest AUC
+from $p$ -- computed once with no intervention (\emph{baseline}, $\mathcal{C}
+= \varnothing$) and once with the candidate heads intervened
+(\emph{steered}). The behavioral causal effect of $\mathcal{C}$ is the
+paired difference $\text{acc}_{\text{steered}} - \text{acc}_{\text{baseline}}$
+on the identical $N$ samples, with significance assessed by McNemar's test
+on the paired correct/incorrect outcome vectors (2x2 discordant-pair count,
+$\chi^2_1$ with continuity correction).
+
+\subsection{Instrument 2: linear-probe classification on hidden states}
+
+The generation-based measurement above is behavioral: it can only observe
+whether the sampled/greedy output token sequence changed. A second,
+purely \emph{representational} measurement asks whether the model's internal
+state at the decision point was linearly separable by the correct answer,
+independent of whatever the decoding procedure ultimately emits. For the
+identical sample and identical intervention (hooks registered or not), one
+extra forward pass with \texttt{output\_hidden\_states=True} is run (no
+generation), and the last transformer layer's hidden state at the final
+prompt token -- the representation immediately before the model would
+start generating -- is extracted:
+\[
+  \mathbf{h}_n \;=\; H^{(L)}_n[0,\,-1,\,:] \;\in\; \mathbb{R}^{d_{\text{model}}},
+  \qquad H^{(L)}_n = \texttt{out.hidden\_states[-1]}.
+\]
+(For architectures whose final hidden-state tensor carries an extra
+leading dimension beyond the standard $(\text{batch}, \text{seq},
+\text{hidden})$ -- e.g.\ Gemma-3n's AltUp, which stacks
+\texttt{config.altup\_num\_inputs} parallel prediction streams as
+$(\text{streams}, \text{batch}, \text{seq}, \text{hidden})$ -- the stream at
+\texttt{config.altup\_active\_idx} is selected first, since that is the
+stream architecturally used to produce the output logits; the standard
+3-D case is unaffected.)
+
+Stacking $\mathbf{h}_1,\dots,\mathbf{h}_N$ with their ground-truth labels
+$\ell^{*}_1,\dots,\ell^{*}_N$ gives a $k$-class classification dataset. A
+multinomial logistic-regression probe is fit on a $70/30$ train/test split
+(\texttt{fit\_and\_eval\_probe}, \texttt{sklearn.linear\_model.
+LogisticRegression}, $C{=}1$):
+\[
+  \hat{\ell}\,(\mathbf{h}) \;=\; \operatorname*{arg\,max}_{\ell \in \mathcal{L}}
+  \; \mathbf{w}_\ell^{\top}\mathbf{h} + b_\ell,
+  \qquad
+  (\mathbf{w}_{\bullet}, \mathbf{b}_{\bullet}) = \operatorname*{arg\,min}
+  \sum_{n \in \text{train}} -\log \operatorname{softmax}(\mathbf{W}\mathbf{h}_n+\mathbf{b})_{\ell^{*}_n}
+  \;+\; \tfrac{1}{2C}\lVert \mathbf{W}\rVert_F^2 ,
+\]
+reporting held-out accuracy and macro one-vs-rest AUC. This probe is
+re-fit independently for the baseline hidden states $\{\mathbf{h}^{\text{base}}_n\}$
+and the steered hidden states $\{\mathbf{h}^{\text{steer}}_n\}$ (same $N$
+samples, same train/test split indices), and the \emph{probe ATE} is the
+accuracy (or AUC) difference between the two fits. Because this measures
+linear separability of a representation rather than a decoded token, it can
+detect a causal shift that generation-based scoring misses (the correct
+answer becomes decodable from $\mathbf{h}$ but the model's greedy decoding
+still emits something else) or, symmetrically, confirm that a generation-level
+effect is backed by an actual representational change rather than a
+decoding-surface artifact.
+
+\subsection{Combined interpretation}
+
+The two instruments are run on the \emph{same} $N$ samples under the
+\emph{same} baseline/steered conditions, giving four paired accuracy
+numbers per checkpoint per candidate set $\mathcal{C}$:
+$(\text{acc}^{\text{gen}}_{\text{base}}, \text{acc}^{\text{gen}}_{\text{steer}},
+\text{acc}^{\text{probe}}_{\text{base}}, \text{acc}^{\text{probe}}_{\text{steer}})$.
+Agreement between the generation ATE and the probe ATE is the strongest
+form of evidence that $\mathcal{C}$ is causally load-bearing for the task
+in the way intended; a probe-only effect with no generation-level effect
+localizes the causal claim to representation rather than behavior, and a
+generation-only effect with no probe shift is grounds to suspect an
+artifact of the decoding procedure (e.g.\ the forced attention mask
+perturbing which token is sampled without genuinely changing what
+information is linearly available) rather than of the underlying
+computation.

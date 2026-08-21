@@ -26,7 +26,7 @@ from tqdm.auto import tqdm
 
 from vis_head.common import DEFAULT_COMICS_ROOT, DEFAULT_MODEL_ID, DEFAULT_N_PANELS, DEFAULT_SEED, dump_json
 from vis_head.data import build_strip, list_comic_dirs
-from vis_head.gaze import panel_query_prompt, rank_heads_by_score
+from vis_head.vir import panel_query_prompt, rank_heads_by_score
 from vis_head.judge import bootstrap_ci, semantic_similarity
 from vis_head.modeling import decode_generated_text, find_image_token_range, load_model_and_processor, model_dims, prepare_inputs, run_generation
 from vis_head.regions import assign_panels_to_tokens, region_positions_from_ids

@@ -16,9 +16,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
 
 # Root folder of six-panel comics (comicN/p1.png..p6.png subdirectories).
-# Override with the GAZE_COMICS_ROOT environment variable or the --comics-root
+# Override with the VIR_COMICS_ROOT environment variable or the --comics-root
 # CLI flag on each script.
-DEFAULT_COMICS_ROOT = Path(os.environ.get("GAZE_COMICS_ROOT", str(REPO_ROOT / "data" / "comics")))
+DEFAULT_COMICS_ROOT = Path(os.environ.get("VIR_COMICS_ROOT", str(REPO_ROOT / "data" / "comics")))
 
 DEFAULT_SEED = 42
 DEFAULT_N_PANELS = 6

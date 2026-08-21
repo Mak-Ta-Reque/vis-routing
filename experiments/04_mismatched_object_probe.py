@@ -26,7 +26,7 @@ from scipy import stats
 from tqdm.auto import tqdm
 
 from vis_head.common import DEFAULT_MODEL_ID, DEFAULT_SEED, dump_json
-from vis_head.gaze import collect_last_query_attentions, rank_heads_by_score
+from vis_head.vir import collect_last_query_attentions, rank_heads_by_score
 from vis_head.imagenet_grid import DEFAULT_IMAGENET_ROOT, PROMPT_TEMPLATES, bare_row_col_prompt, list_val_class_dirs, load_class_names
 from vis_head.modeling import load_model_and_processor, model_dims, prepare_inputs
 from vis_head.regions import assign_grid_cells_to_tokens

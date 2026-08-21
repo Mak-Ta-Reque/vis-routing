@@ -40,7 +40,7 @@ from vis_head.common import (
     write_text,
 )
 from vis_head.data import build_strip, list_comic_dirs
-from vis_head.gaze import load_head_ranking, sample_non_vis_heads
+from vis_head.vir import load_head_ranking, sample_non_vis_heads
 from vis_head.judge import DEFAULT_JUDGE_MODEL, bootstrap_ci, judge_match_target_panel, require_api_key
 from vis_head.modeling import (
     decode_generated_text,

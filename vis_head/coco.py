@@ -27,7 +27,7 @@ from PIL import Image, ImageDraw
 from vis_head.common import REPO_ROOT, ensure_dir, json_default
 
 DEFAULT_COCO_ROOT = Path(
-    os.environ.get("GAZE_COCO_ROOT", "/mnt/abka03/raw_data_download/mscoco2024")
+    os.environ.get("VIR_COCO_ROOT", "/mnt/abka03/raw_data_download/mscoco2024")
 )
 DEFAULT_COCO_SPLIT = "val2014"
 DEFAULT_COCO_OUTPUT_DIR = REPO_ROOT / "data" / "coco_vis_head"
@@ -284,7 +284,7 @@ def read_jsonl(path: Path) -> list[dict]:
 
 @dataclass
 class CocoVisHeadDataset:
-    """A generated COCO-gaze dataset loaded back from disk."""
+    """A generated COCO-vir dataset loaded back from disk."""
 
     metadata: list[dict] = field(default_factory=list)
     ground_truth_by_id: dict[int, dict] = field(default_factory=dict)
@@ -299,8 +299,8 @@ class CocoVisHeadDataset:
 
 def target_weight_fraction(patch_mask_flat: Sequence[float]) -> float:
     """Mean per-token occupancy weight — the COCO analogue of
-    `vis_head.gaze.panel_token_fractions`: how much of the image the target
-    object effectively covers, used to area-normalize gaze scores so a small
+    `vis_head.vir.panel_token_fractions`: how much of the image the target
+    object effectively covers, used to area-normalize vir scores so a small
     COCO object isn't mechanically penalized relative to a large comic panel.
     """
     weights = np.asarray(patch_mask_flat, dtype=np.float64)
@@ -317,7 +317,7 @@ def vis_head_score_from_patch_mask(
     target object, weighted by per-patch occupancy (`patch_mask_flat`, values
     in [0, 1]). Returns an (n_layers, n_heads) score matrix.
 
-    Mirrors `vis_head.gaze.aggregate_region_attention`, but uses continuous
+    Mirrors `vis_head.vir.aggregate_region_attention`, but uses continuous
     patch-occupancy weights from a COCO segmentation instead of a one-hot
     panel assignment.
     """

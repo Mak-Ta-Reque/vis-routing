@@ -48,7 +48,7 @@ chance = 0.250. Steering roughly **doubles** accuracy over baseline at every gri
 size, with the causal claim holding at high significance throughout.
 
 **Random-head control (necessity of the causal claim itself):** ablating a random,
-non-Vis-Head (Visual Routing Head) pool produces a much smaller effect than ablating the discovered gaze
+non-Vis-Head (Visual Routing Head) pool produces a much smaller effect than ablating the discovered VIR
 heads, at every budget tested (paired Wilcoxon p from 2.5e-02 to 8.2e-06 across
 budgets/models) — confirming the causal effect is Vis-Head-specific, not generic fragility
 to any intervention.

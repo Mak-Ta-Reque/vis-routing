@@ -41,6 +41,76 @@ def group_heads_by_layer(head_specs: Sequence[tuple[int, int]]) -> dict[int, lis
     return grouped
 
 
+def layer_matched_random_controls(
+    selected_heads: Sequence[tuple[int, int]],
+    n_layers: int,
+    n_heads: int,
+    n_controls: int,
+    rng: np.random.RandomState,
+) -> list[list[tuple[int, int]]]:
+    """Draw `n_controls` control head sets that each match `selected_heads`'
+    per-layer histogram exactly (same count of heads sampled from each layer,
+    uniformly among that layer's OTHER heads) -- a uniformly-random set over
+    all (layer, head) pairs differs systematically in depth from a real VIR
+    selection (which is rarely uniform across layers), and depth alone
+    modulates how strongly an attention perturbation propagates to the
+    output. Comparing against a uniformly-random baseline confounds "the
+    selected heads are causally special" with "the selected heads happen to
+    sit deeper" -- layer-matching removes that confound.
+
+    Controls are disjoint from `selected_heads` (a head can appear in more
+    than one control draw, but never in the same set as its VIR counterpart
+    at the same layer being double-counted). Draw all `n_controls` sets once
+    up front; the caller applies each identically across all evaluation
+    samples, never resampling per sample.
+    """
+    layer_histogram: dict[int, int] = {}
+    for layer_idx, _ in selected_heads:
+        layer_histogram[int(layer_idx)] = layer_histogram.get(int(layer_idx), 0) + 1
+
+    selected_set = set((int(l), int(h)) for l, h in selected_heads)
+    controls = []
+    for _ in range(n_controls):
+        draw = []
+        for layer_idx, count in layer_histogram.items():
+            candidates = [h for h in range(n_heads) if (layer_idx, h) not in selected_set]
+            if len(candidates) < count:
+                raise ValueError(
+                    f"Layer {layer_idx} has only {len(candidates)} non-selected heads "
+                    f"but {count} are needed to match the VIR histogram."
+                )
+            chosen = rng.choice(len(candidates), size=count, replace=False)
+            draw.extend((layer_idx, candidates[i]) for i in chosen)
+        controls.append(draw)
+    return controls
+
+
+def assert_layer_histogram_matches(
+    selected_heads: Sequence[tuple[int, int]], control_heads: Sequence[tuple[int, int]]
+) -> None:
+    """Hard assertion (not a soft check) that a control draw's per-layer
+    histogram exactly equals the VIR selection's -- per the brief, a failed
+    match must halt the run, not be silently tolerated."""
+    def _histogram(heads):
+        hist: dict[int, int] = {}
+        for l, _ in heads:
+            hist[int(l)] = hist.get(int(l), 0) + 1
+        return hist
+
+    sel_hist = _histogram(selected_heads)
+    ctrl_hist = _histogram(control_heads)
+    assert sel_hist == ctrl_hist, (
+        f"Layer-matched control histogram mismatch: selected={sel_hist} control={ctrl_hist}"
+    )
+
+
+def permutation_pvalue_floor(n_controls: int) -> float:
+    """The minimum reportable p-value for a permutation test with
+    `n_controls` draws is 1/(n_controls+1) -- a p-value below this floor must
+    never be quoted (there is no statistical resolution finer than that)."""
+    return 1.0 / (n_controls + 1)
+
+
 def intervention_positions(
     mode: str,
     target_positions: Sequence[int],
@@ -337,16 +407,35 @@ def register_prefill_value_norm_trackers(
                     hidden_states = args[0]
                 if hidden_states.shape[1] <= 1:
                     return
+                v_proj = getattr(module, "v_proj", None)
+                if v_proj is None:
+                    # Some architectures (e.g. Gemma-3n) share KV projections
+                    # across layers to save memory -- those layers have no
+                    # v_proj of their own. Leave this layer's storage unset;
+                    # the caller treats a missing entry as "unweighted" (falls
+                    # back to raw attention for that layer only).
+                    return
 
-                value_states = module.v_proj(hidden_states)
+                value_states = v_proj(hidden_states)
                 bsz, seq_len, packed_dim = value_states.shape
-                head_dim = int(
-                    getattr(
-                        module,
-                        "head_dim",
-                        getattr(getattr(module, "config", None), "head_dim", 0),
-                    )
-                )
+                # NOTE: getattr's default argument is evaluated eagerly, not
+                # lazily -- `getattr(module, "head_dim", getattr(module.config,
+                # "head_dim", 0))` used to always evaluate the config fallback
+                # even when module.head_dim already existed. Some
+                # architectures (e.g. Gemma-4, whose head_dim is a per-layer
+                # config field) raise on that global config access, crashing
+                # every layer instead of only the ones actually missing
+                # module.head_dim. Look up module.head_dim first and only
+                # touch module.config.head_dim (inside a try/except) if that
+                # fails.
+                head_dim = getattr(module, "head_dim", None)
+                if head_dim is None:
+                    cfg = getattr(module, "config", None)
+                    try:
+                        head_dim = getattr(cfg, "head_dim", None) if cfg is not None else None
+                    except Exception:
+                        head_dim = None
+                head_dim = int(head_dim or 0)
                 if head_dim <= 0:
                     raise ValueError("Could not infer head_dim for value-weighted attention.")
 

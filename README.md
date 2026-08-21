@@ -11,7 +11,7 @@ evaluation.
 
 ## What's original here
 
-- **Two new gaze-discovery datasets** beyond the original comic-strip corpus:
+- **Two new VIR-discovery datasets** beyond the original comic-strip corpus:
   a COCO-based dataset (`vis_head/coco.py`, `build_coco_vis_head_dataset.ipynb`) and a
   controllable ImageNet-grid dataset (`vis_head/imagenet_grid.py`,
   `imagenet_grid_vis_heads.ipynb`) that independently randomizes object identity and
@@ -48,8 +48,8 @@ by contribution: [`experiments/CONTRIBUTIONS_EVIDENCE.md`](experiments/CONTRIBUT
 
 ## Setup
 ```
-conda create -n gazeheads python=3.10
-conda activate gazeheads
+conda create -n virheads python=3.10
+conda activate virheads
 pip install -r requirements.txt
 ```
 The steering evaluations use Claude as a judge, so you need to export your
@@ -64,7 +64,7 @@ To download the 500-strip comics dataset (500 six-panel strips, per-panel captio
 python download_data.py
 ```
 This exports comics to `data/comics/`, one folder per strip. Point any script at your
-own comics with `--comics-root` or `GAZE_COMICS_ROOT`. For the COCO and ImageNet-grid
+own comics with `--comics-root` or `VIR_COMICS_ROOT`. For the COCO and ImageNet-grid
 datasets, see `build_coco_vis_head_dataset.ipynb` and `imagenet_grid_vis_heads.ipynb`.
 
 ## Discovering Visual Routing Heads
@@ -95,10 +95,10 @@ box over any image and steer the description to it.
 
 ## Acknowledgments
 
-This codebase builds on an existing gaze-head discovery/steering implementation for
+This codebase builds on an existing VIR-head discovery/steering implementation for
 Qwen3-VL, developed for prior published research on attention-based visual
 description in VLMs. That prior work established the base discovery method (raw
-attention gaze scoring on comic-panel queries) and the boost/suppress steering
+attention VIR scoring on comic-panel queries) and the boost/suppress steering
 intervention; this project's contribution is everything described above built on top
 of it. If citing the underlying discovery/steering mechanism specifically, please
 credit the original publication.
